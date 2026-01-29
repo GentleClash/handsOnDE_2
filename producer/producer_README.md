@@ -110,7 +110,7 @@ pip install numpy scipy pandas matplotlib seaborn
 cd producer
 
 # Generate synthetic data (1 hour simulation)
-python main.py
+python synthetic_data_generator.py
 ```
 
 Output:
@@ -209,7 +209,7 @@ modified_event = injector.inject_errors(event)
 ### SyntheticDataGenerator
 
 ```python
-from main import SyntheticDataGenerator
+from synthetic_data_generator import SyntheticDataGenerator
 
 generator = SyntheticDataGenerator(output_dir='data')
 
