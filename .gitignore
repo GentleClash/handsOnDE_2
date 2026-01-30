@@ -6,6 +6,7 @@ __pycache__/
 #venv
 handsonde/
 data/
+data_lake/
 
 # C extensions
 *.so
