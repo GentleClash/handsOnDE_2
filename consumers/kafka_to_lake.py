@@ -11,16 +11,16 @@ load_dotenv()
 def get_config() -> dict:
     """Check for config in env otherwise use defaults"""
 
-    BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
+    BOOTSTRAP_SERVERS = os.getenv('KAFKA_CONSUMER_BOOTSTRAP_SERVERS', 'localhost:9092')
     GROUP_ID = os.getenv('KAFKA_CONSUMER_GROUP', 'raw-data-archive')
-    OFFSET_RESET = os.getenv('KAFKA_AUTO_OFFSET_RESET', 'earliest')
+    OFFSET_RESET = os.getenv('KAFKA_CONSUMER_AUTO_OFFSET_RESET', 'earliest')
     bootstrap_conf = {
         'bootstrap.servers': BOOTSTRAP_SERVERS,
         'group.id': GROUP_ID,
         'auto.offset.reset': OFFSET_RESET
     }
 
-    TOPICS = os.getenv('KAFKA_TOPICS', 'orders.events,riders.events').split(',')
+    TOPICS = os.getenv('KAFKA_CONSUMER_TOPICS', 'orders.events,riders.events').split(',')
     BASE_DIR = os.getenv('DATA_LAKE_BASE_DIR', 'data_lake/raw')
 
     return {
