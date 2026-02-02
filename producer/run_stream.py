@@ -39,10 +39,10 @@ try:
         for order_item in orders:
             key_bytes, value_bytes = None, None
             try:
-                if isinstance(order_item, str):
+                if isinstance(order_item, str): # Broken json string
                     value_bytes = order_item.encode('utf-8')
                     order_dict = json.loads(order_item)
-                    key_bytes = order_dict.get('order_id', str(uuid.uuid4())).encode('utf-8')
+                    key_bytes = order_dict.get('order_id', str(uuid.uuid4())).encode('utf-8') #Use random UUID if missing
                 else:
                     value_bytes = json.dumps(order_item).encode('utf-8')
                     key_bytes = order_item.get('order_id', str(uuid.uuid4())).encode('utf-8')
