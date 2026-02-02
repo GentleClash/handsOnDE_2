@@ -17,3 +17,39 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_NUM_PARTITIONS: 3
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:29092"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  
+  producer:
+    build: .
+    container_name: kafka_producer
+    depends_on:
+      broker:
+        condition: service_healthy
+    environment:
+      KAFKA_PRODUCER_BOOTSTRAP_SERVERS: broker:29092
+      SYNTHETIC_DATA_OUTPUT_DIR: /data
+    volumes:
+      - ./data:/data
+    command: ["python", "producer/run_stream.py"]
+
+  consumer:
+    build: .
+    container_name: kafka_consumer
+    depends_on:
+      broker:
+        condition: service_healthy
+    environment:
+      KAFKA_CONSUMER_BOOTSTRAP_SERVERS: broker:29092
+      KAFKA_CONSUMER_GROUP: raw-data-archive
+      KAFKA_CONSUMER_TOPICS: orders.events,riders.events
+      KAFKA_CONSUMER_AUTO_OFFSET_RESET: earliest
+      DATA_LAKE_BASE_DIR: /data_lake/raw
+    volumes:
+      - ./data_lake:/data_lake
+    command: ["python", "consumers/kafka_to_lake.py"]
