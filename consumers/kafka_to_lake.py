@@ -2,21 +2,10 @@ import json
 import os
 from datetime import datetime
 from confluent_kafka import Consumer
-
-conf = {
-    'bootstrap.servers': 'localhost:9092',
-    'group.id': 'raw-data-archive',
-    'auto.offset.reset': 'earliest'
-}
-
-TOPICS = ['orders.events', 'riders.events']
+from argparse import ArgumentParser
 
 
-BASE_DIR = 'data_lake/raw' #todo: use gcs
-BATCH_SIZE = 200  
-FLUSH_INTERVAL = 10  
-
-def get_file_path(topic: str, msg_value: bytes) -> str:
+def get_file_path(topic: str, msg_value: bytes, base_dir: str) -> str:
     """
     returns datalake/raw/{topic}/region={region}/date={YYYY-MM-DD}/hour={HH}/chunk_{timestamp}.ndjson
     """
@@ -38,7 +27,7 @@ def get_file_path(topic: str, msg_value: bytes) -> str:
 
     # Topic -> region -> date -> hour
     dir_path = os.path.join(
-                    BASE_DIR, 
+                    base_dir, 
                     topic, 
                     f'region={region}', 
                     f'date={date_str}', 
@@ -48,7 +37,7 @@ def get_file_path(topic: str, msg_value: bytes) -> str:
 
     return os.path.join(dir_path, f'chunk_{int(datetime.now().timestamp())}.ndjson')
 
-def flush_buffer(buffer: list) -> None:
+def flush_buffer(buffer: list, base_dir: str) -> None:
     if not buffer:
         return
     
@@ -57,7 +46,7 @@ def flush_buffer(buffer: list) -> None:
     files_to_write = {}
 
     for topic, msg_value in buffer:
-        file_path = get_file_path(topic, msg_value)
+        file_path = get_file_path(topic, msg_value, base_dir = base_dir)
         if file_path not in files_to_write:
             files_to_write[file_path] = []
         files_to_write[file_path].append(msg_value)
@@ -70,9 +59,9 @@ def flush_buffer(buffer: list) -> None:
     print(f"Written {len(files_to_write)} files.")
     #buffer.clear()
 
-def main() -> None:
+def main(conf: dict, topics: list, base_dir: str, batch_size: int, flush_interval: int) -> None:
     consumer = Consumer(conf) # type: ignore
-    consumer.subscribe(TOPICS)
+    consumer.subscribe(topics)
 
     buffer = []
     last_flush_time = datetime.now()
@@ -81,8 +70,8 @@ def main() -> None:
         while True:
             msg = consumer.poll(1.0)
 
-            if (datetime.now() - last_flush_time).seconds >= FLUSH_INTERVAL and buffer:
-                flush_buffer(buffer)
+            if (datetime.now() - last_flush_time).seconds >= flush_interval and buffer:
+                flush_buffer(buffer, base_dir)
                 buffer.clear()
                 last_flush_time = datetime.now()
 
@@ -92,20 +81,47 @@ def main() -> None:
                 print(f"Consumer error: {msg.error()}")
                 continue
 
+            
+            par = msg.partition()
+            print(f"Consumed message from topic {msg.topic()}, partition {par}")
+
             val = msg.value().decode('utf-8') #type: ignore
             topic = msg.topic()
             buffer.append((topic, val))
 
-            if len(buffer) >= BATCH_SIZE:
-                flush_buffer(buffer)
+            if len(buffer) >= batch_size:
+                flush_buffer(buffer, base_dir)
                 buffer.clear()
                 last_flush_time = datetime.now()
 
     except KeyboardInterrupt:
         pass
     finally:
-        if buffer: flush_buffer(buffer)
+        if buffer: flush_buffer(buffer, base_dir)
         consumer.close()
 
 if __name__ == "__main__":
-    main()
+
+    # cli
+    parser = ArgumentParser()
+    parser.add_argument('--bootstrap-servers', default='localhost:9092')
+    parser.add_argument('--group-id', default='raw-data-archive')
+    parser.add_argument('--topics', nargs='+', default=['orders.events', 'riders.events'])
+    parser.add_argument('--base-dir', default='data_lake/raw')
+    parser.add_argument('--batch-size', type=int, default=200)
+    parser.add_argument('--flush-interval', type=int, default=10)
+    args = parser.parse_args()
+
+
+    conf = {
+    'bootstrap.servers': args.bootstrap_servers,
+    'group.id': args.group_id,
+    'auto.offset.reset': 'earliest'
+    }
+
+    TOPICS = args.topics
+
+    BASE_DIR = args.base_dir
+    BATCH_SIZE = args.batch_size
+    FLUSH_INTERVAL = args.flush_interval
+    main(conf, TOPICS, BASE_DIR, BATCH_SIZE, FLUSH_INTERVAL)
