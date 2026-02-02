@@ -3,6 +3,31 @@ import os
 from datetime import datetime
 from confluent_kafka import Consumer
 from argparse import ArgumentParser
+from dotenv import load_dotenv
+load_dotenv()
+
+
+
+def get_config() -> dict:
+    """Check for config in env otherwise use defaults"""
+
+    BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
+    GROUP_ID = os.getenv('KAFKA_CONSUMER_GROUP', 'raw-data-archive')
+    OFFSET_RESET = os.getenv('KAFKA_AUTO_OFFSET_RESET', 'earliest')
+    bootstrap_conf = {
+        'bootstrap.servers': BOOTSTRAP_SERVERS,
+        'group.id': GROUP_ID,
+        'auto.offset.reset': OFFSET_RESET
+    }
+
+    TOPICS = os.getenv('KAFKA_TOPICS', 'orders.events,riders.events').split(',')
+    BASE_DIR = os.getenv('DATA_LAKE_BASE_DIR', 'data_lake/raw')
+
+    return {
+        'conf': bootstrap_conf,
+        'topics': TOPICS,
+        'base_dir': BASE_DIR
+    }
 
 
 def get_file_path(topic: str, msg_value: bytes, base_dir: str) -> str:
@@ -104,24 +129,16 @@ if __name__ == "__main__":
 
     # cli
     parser = ArgumentParser()
-    parser.add_argument('--bootstrap-servers', default='localhost:9092')
-    parser.add_argument('--group-id', default='raw-data-archive')
-    parser.add_argument('--topics', nargs='+', default=['orders.events', 'riders.events'])
-    parser.add_argument('--base-dir', default='data_lake/raw')
     parser.add_argument('--batch-size', type=int, default=200)
     parser.add_argument('--flush-interval', type=int, default=10)
     args = parser.parse_args()
 
+    config_dict = get_config()
+    conf = config_dict['conf']
+    topics = config_dict['topics']
+    base_dir = config_dict['base_dir']
 
-    conf = {
-    'bootstrap.servers': args.bootstrap_servers,
-    'group.id': args.group_id,
-    'auto.offset.reset': 'earliest'
-    }
 
-    TOPICS = args.topics
-
-    BASE_DIR = args.base_dir
-    BATCH_SIZE = args.batch_size
-    FLUSH_INTERVAL = args.flush_interval
-    main(conf, TOPICS, BASE_DIR, BATCH_SIZE, FLUSH_INTERVAL)
+    batch_size = args.batch_size
+    flush_interval = args.flush_interval
+    main(conf, topics, base_dir, batch_size, flush_interval)
