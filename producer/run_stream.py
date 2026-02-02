@@ -1,20 +1,40 @@
 import json
+import os
 import time
 from datetime import datetime
 from confluent_kafka import Producer
 from synthetic_data_generator import SyntheticDataGenerator
 from typing import Dict
 import uuid
+from dotenv import load_dotenv
+load_dotenv()
 
 
-conf: Dict[str, str] = {
-    'bootstrap.servers': 'localhost:9092'
-}
+# There is no __main__ guard here as this script is intended to be run directly.
 
-producer = Producer(conf) #type: ignore
+def get_config() -> dict:
+    """Check for config in env otherwise use defaults."""
+
+    BOOTSTRAP_SERVERS = os.getenv('KAFKA_PRODUCER_BOOTSTRAP_SERVERS', 'localhost:9092')
+
+    conf = {
+        'bootstrap.servers': BOOTSTRAP_SERVERS
+    }
+
+    BASE_DIR = os.getenv('SYNTHETIC_DATA_OUTPUT_DIR', 'data')
+
+    return {
+        'kafka-conf': conf,
+        'base_dir': BASE_DIR
+    }
+
+
+conf: Dict[str, str] = get_config()
+
+producer = Producer(conf['kafka-conf']) #type: ignore
 
 print("Initializing synthetic data generator...")
-data_generator = SyntheticDataGenerator(output_dir='data')
+data_generator = SyntheticDataGenerator(output_dir=conf['base_dir'])
 data_generator.initialize()
 
 
