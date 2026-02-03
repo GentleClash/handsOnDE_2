@@ -4,531 +4,61 @@ Synthetic Data Generator for Delivery Platform Events
 Generates realistic operational events (orders, riders) and reference data (CSV)
 """
 
-import uuid
 import json
 import random
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
-import csv
 
-from demandmodel import DemandModel
-from error_injection import ErrorInjector
+from reference_data_generator import ReferenceDataGenerator
+from order_event_generator import OrderEventGenerator
+from rider_event_generator import RiderEventGenerator
+
+from config_constants import *
 
 random.seed(42)
-
-
-# =============================================================================
-# Configuration Constants
-# =============================================================================
-
-REGIONS = ['north', 'south', 'east', 'west', 'central']
-ZONES_PER_REGION = 10
-PAYMENT_METHODS = ['card', 'upi', 'cash', 'wallet']
-CUISINE_TYPES = ['indian', 'chinese', 'italian', 'american', 'mexican', 'thai', 'japanese']
-ORDER_EVENT_TYPES = ['order_created', 'order_accepted', 'order_picked_up', 'order_delivered', 'order_cancelled']
-RIDER_EVENT_TYPES = ['shift_started', 'shift_ended', 'location_ping', 'order_assigned']
-RIDER_STATUSES = ['idle', 'busy', 'offline']
-
-# GPS boundaries
-GPS_BOUNDS = {
-    'lat_min': 12.85,
-    'lat_max': 13.15,
-    'lon_min': 77.45,
-    'lon_max': 77.75
-}
-
-PROBABILITIES = {
-    'order_created': 1.0,
-    'order_accepted': 0.99,
-    'order_assigned': 0.4, # 40% chance of assignment when rider is available
-    'order_picked_up': 0.97,
-    'order_cancelled': 0.05,
-    'order_delivered': 0.95,
-    'rider_shift_started': 1.0,
-    'rider_shift_ended': 0.05 # riders end shifts in a minute chance
-
-}
-
-
-# =============================================================================
-# Reference Data Generators
-# =============================================================================
-
-class ReferenceDataGenerator:
-    """Generates reference CSV data for restaurants, riders, zones, and pricing"""
-    
-    def __init__(self, output_dir: str = 'data/reference', corrupted_row_rate: float = 0.005) -> None:
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Error injection rates for reference data
-        self.corrupted_row_rate = corrupted_row_rate 
-    
-    def generate_zones(self, regions : Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """Generate zones.csv data"""
-        zones = []
-        zone_id = 1
-
-        if not regions:
-            regions = REGIONS
-        
-        for region in regions:
-            for _ in range(ZONES_PER_REGION):
-                # Generate simple rectangular boundary
-                lat_center = random.uniform(GPS_BOUNDS['lat_min'], GPS_BOUNDS['lat_max'])
-                lon_center = random.uniform(GPS_BOUNDS['lon_min'], GPS_BOUNDS['lon_max'])
-                boundary = self._generate_boundary_polygon(lat_center, lon_center)
-                
-                zones.append({
-                    'zone_id': f'Z{zone_id:04d}',
-                    'city': f'City_{region.title()}',
-                    'region': region,
-                    'boundary_polygon': json.dumps(boundary)
-                })
-                zone_id += 1
-        
-        return zones
-    
-    def _generate_boundary_polygon(self, lat: float, lon: float, size: float = 0.02) -> List[List[float]]:
-        """Generate a simple rectangular boundary polygon"""
-        return [
-            [lat - size, lon - size],
-            [lat - size, lon + size],
-            [lat + size, lon + size],
-            [lat + size, lon - size],
-            [lat - size, lon - size]  
-        ]
-    
-    def generate_restaurants(self, zones: List[Dict], num_restaurants: int = 500) -> List[Dict[str, Any]]:
-        """Generate restaurants.csv data"""
-        restaurants = []
-        
-        for i in range(num_restaurants):
-            zone = random.choice(zones)
-            restaurants.append({
-                'restaurant_id': f'R{i+1:06d}',
-                'name': f'Restaurant_{i+1}',
-                'zone_id': zone['zone_id'],
-                'region': zone['region'],
-                'cuisine_type': random.choice(CUISINE_TYPES),
-                'active_flag': random.choices([True, False], weights=[0.9, 0.1])[0]
-            })
-        
-        return restaurants
-    
-    def generate_riders(self, zones: List[Dict], num_riders: int = 1000) -> List[Dict[str, Any]]:
-        """Generate riders.csv data"""
-        riders = []
-        
-        for i in range(num_riders):
-            zone = random.choice(zones)
-            riders.append({
-                'rider_id': f'RD{i+1:06d}',
-                'name': f'Rider_{i+1}',
-                'phone': f'+91{random.randint(7000000000, 9999999999)}',
-                'zone_id': zone['zone_id'],
-                'rating': round(random.uniform(1.2, 5.0), 2),
-                'total_deliveries': random.randint(50, 100) if random.random() < 0.8 else int(random.gauss(100, 50))
-                
-            })
-        
-        return riders
-    
-    def generate_pricing_rules(self, zones: List[Dict]) -> List[Dict[str, Any]]:
-        """Generate pricing_rules.csv data"""
-        rules = []
-        rule_id = 1
-        
-        for zone in zones:
-            # Each zone has 1-3 pricing rules
-            num_rules = random.randint(1, 3)
-            
-            for _ in range(num_rules):
-                valid_from = datetime.now() - timedelta(days=random.randint(30, 365))
-                valid_to = valid_from + timedelta(days=random.randint(90, 365))
-                
-                rules.append({
-                    'rule_id': f'PR{rule_id:05d}',
-                    'zone_id': zone['zone_id'],
-                    'base_fee': round(random.uniform(20, 50), 2),
-                    'per_km_rate': round(random.uniform(5, 15), 2),
-                    'valid_from': valid_from.strftime('%Y-%m-%d'),
-                    'valid_to': valid_to.strftime('%Y-%m-%d')
-                })
-                rule_id += 1
-        
-        return rules
-    
-    def _inject_corrupted_row(self, row: Dict[str, Any]) -> Dict[str, Any]:
-        """Corrupt a row by removing or mangling data"""
-        if random.random() < self.corrupted_row_rate:
-            keys = list(row.keys())
-            key_to_corrupt = random.choice(keys)
-            row[key_to_corrupt] = '###CORRUPTED###'
-        return row
-    
-    def write_csv(self, data: List[Dict], filename: str) -> str:
-        """Write data to CSV with optional error injection"""
-        filepath = self.output_dir / filename
-        
-        if not data:
-            return str(filepath)
-        
-        # Apply error injection
-        processed_data = []
-        for row in data:
-            row = self._inject_corrupted_row(row)
-            processed_data.append(row)
-        
-        # Get base fieldnames from first non-drifted row, then add extra columns at the end
-        base_keys = [k for k in data[0].keys() if not k.startswith('_extra')]
-        extra_keys = sorted(set(
-            k for row in processed_data 
-            for k in row.keys() 
-            if k.startswith('_extra')
-        ))
-        fieldnames = base_keys + extra_keys
-        
-        with open(filepath, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(processed_data)
-        
-        return str(filepath)
-    
-    def generate_all(self) -> Dict[str, str]:
-        """Generate all reference data files"""
-        zones = self.generate_zones()
-        restaurants = self.generate_restaurants(zones)
-        riders = self.generate_riders(zones)
-        pricing_rules = self.generate_pricing_rules(zones)
-        
-        return {
-            'zones': self.write_csv(zones, 'zones.csv'),
-            'restaurants': self.write_csv(restaurants, 'restaurants.csv'),
-            'riders': self.write_csv(riders, 'riders.csv'),
-            'pricing_rules': self.write_csv(pricing_rules, 'pricing_rules.csv')
-        }
-
-
-# =============================================================================
-# Event Generators
-# =============================================================================
-
-class OrderEventGenerator:
-    """Generates order lifecycle events"""
-    
-    def __init__(self, restaurants: List[Dict], riders: List[Dict], zones: List[Dict]) -> None:
-        self.restaurants = restaurants
-        self.riders = riders
-        self.zones = zones
-        self.demand_model = DemandModel(base_lambda=50)
-        self.error_injector = ErrorInjector()
-        self.active_orders: Dict[str, Dict] = {}  # Track order state
-
-        self.rider_delivery_counts: Dict[str, int] = {
-            rider['rider_id']: rider['total_deliveries'] for rider in riders
-        }
-    
-    def generate_order_event(
-        self, 
-        timestamp: datetime,
-        event_type: str,
-        order_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Generate a single order event"""
-        
-        if event_type == 'order_created':
-            # New order
-            order_id = str(uuid.uuid4())
-            restaurant = random.choice(self.restaurants)
-            rider = random.choice(self.riders)
-            
-            order_value = min(max(random.lognormvariate(mu=5.5, sigma=0.6), 100), 2000)
-            
-            # Payment method with realistic distribution: UPI > Cash ≈ Card > Wallet
-            payment_method = random.choices(
-                PAYMENT_METHODS,
-                weights=[0.45, 0.35, 0.15, 0.05]  # upi, cash, card, wallet
-            )[0]
-            
-            event = {
-                'event_id': str(uuid.uuid4()),
-                'event_timestamp': timestamp.isoformat(),
-                'event_type': event_type,
-                'order_id': order_id,
-                'restaurant_id': restaurant['restaurant_id'],
-                'rider_id': None,  # Not assigned yet
-                'customer_id': f'C{random.randint(1, 100000):06d}',
-                'region': restaurant['region'],
-                'zone_id': restaurant['zone_id'],
-                'order_value': round(order_value, 2),
-                'payment_method': payment_method
-            }
-            
-            # Track order state
-            self.active_orders[order_id] = {
-                'event': event,
-                'created_at': timestamp
-            }
-            
-        elif order_id and order_id in self.active_orders:
-            # Existing order state transition
-            base_event = self.active_orders[order_id]['event']
-            rider = random.choice(self.riders)
-            
-            event = {
-                'event_id': str(uuid.uuid4()),
-                'event_timestamp': timestamp.isoformat(),
-                'event_type': event_type,
-                'order_id': order_id,
-                'restaurant_id': base_event['restaurant_id'],
-                'rider_id': rider['rider_id'] if event_type != 'order_cancelled' else base_event.get('rider_id'),
-                'customer_id': base_event['customer_id'],
-                'region': base_event['region'],
-                'zone_id': base_event['zone_id'],
-                'order_value': base_event['order_value'],
-                'payment_method': base_event['payment_method']
-            }
-
-            # Increment rider's delivery count when order is delivered
-            if event_type == 'order_delivered' and event['rider_id']:
-                self.rider_delivery_counts[event['rider_id']] = \
-                    self.rider_delivery_counts.get(event['rider_id'], 0) + 1
-            
-            # Clean up completed/cancelled orders
-            if event_type in ['order_delivered', 'order_cancelled']:
-                del self.active_orders[order_id]
-
-        else:
-            # Fallback for orphaned events
-            restaurant = random.choice(self.restaurants)
-            order_value = min(max(random.lognormvariate(mu=5.5, sigma=0.6), 100), 2000)
-            payment_method = random.choices(
-                PAYMENT_METHODS,
-                weights=[0.45, 0.35, 0.15, 0.05]  # upi, cash, card, wallet
-            )[0]
-            event = {
-                'event_id': str(uuid.uuid4()),
-                'event_timestamp': timestamp.isoformat(),
-                'event_type': event_type,
-                'order_id': order_id or str(uuid.uuid4()),
-                'restaurant_id': restaurant['restaurant_id'],
-                'rider_id': random.choice(self.riders)['rider_id'],
-                'customer_id': f'C{random.randint(1, 100000):06d}',
-                'region': restaurant['region'],
-                'zone_id': restaurant['zone_id'],
-                'order_value': round(order_value, 2),
-                'payment_method': payment_method
-            }
-        
-        return event
-    
-    def generate_events_for_minute(self, timestamp: datetime) -> List[Dict[str, Any]]:
-        """Generate all order events for a given minute"""
-        events = []
-        
-        # Get order count from demand model
-        order_count = self.demand_model.generate_order_rate(timestamp)
-        
-        # Generate new orders
-        for _ in range(order_count):
-            event = self.generate_order_event(timestamp, 'order_created')
-            processed_event = self.error_injector.inject_errors(event)
-            
-            if processed_event:
-                events.append(processed_event)
-            
-        # Progress existing orders through proper lifecycle with realistic ratios
-        # Expected flow: created -> accepted -> picked_up -> delivered (or cancelled at any stage)
-        for order_id, order_data in list(self.active_orders.items()):
-            created_at = order_data['created_at']
-            current_state = order_data.get('state', 'created')
-            elapsed = (timestamp - created_at).total_seconds() / 60
-            
-            # Determine next state based on current state and elapsed time
-            next_event = None
-            if current_state == 'created' and elapsed > 2:
-                
-                if random.random() < PROBABILITIES['order_accepted']:
-                    next_event = 'order_accepted'
-                    self.active_orders[order_id]['state'] = 'accepted'
-                else:
-                    next_event = 'order_cancelled'
-            elif current_state == 'accepted' and elapsed > 8:
-
-                if random.random() < PROBABILITIES['order_picked_up']:
-                    next_event = 'order_picked_up'
-                    self.active_orders[order_id]['state'] = 'picked_up'
-                else:
-                    next_event = 'order_cancelled'
-            elif current_state == 'picked_up' and elapsed > 20:
-
-                if random.random() < PROBABILITIES['order_delivered']:
-                    next_event = 'order_delivered'
-                else:
-                    next_event = 'order_cancelled'
-            
-            if next_event:
-                event = self.generate_order_event(timestamp, next_event, order_id)
-                processed_event = self.error_injector.inject_errors(event)
-                if processed_event:
-                    events.append(processed_event)
-        
-        return events
-    
-    def _progress_existing_orders(self, timestamp: datetime) -> List[Dict[str, Any]]:
-        """Progress existing orders without creating new ones"""
-        events = []
-        
-        for order_id, order_data in list(self.active_orders.items()):
-            created_at = order_data['created_at']
-            current_state = order_data.get('state', 'created')
-            elapsed = (timestamp - created_at).total_seconds() / 60
-            
-            next_event = None
-            if current_state == 'created' and elapsed > 2:
-                if random.random() < PROBABILITIES['order_accepted']:
-                    next_event = 'order_accepted'
-                    self.active_orders[order_id]['state'] = 'accepted'
-                else:
-                    next_event = 'order_cancelled'
-            elif current_state == 'accepted' and elapsed > 8:
-                if random.random() < PROBABILITIES['order_picked_up']:
-                    next_event = 'order_picked_up'
-                    self.active_orders[order_id]['state'] = 'picked_up'
-                else:
-                    next_event = 'order_cancelled'
-            elif current_state == 'picked_up' and elapsed > 20:
-                if random.random() < PROBABILITIES['order_delivered']:
-                    next_event = 'order_delivered'
-                else:
-                    next_event = 'order_cancelled'
-            
-            if next_event:
-                event = self.generate_order_event(timestamp, next_event, order_id)
-                processed_event = self.error_injector.inject_errors(event)
-                if processed_event:
-                    events.append(processed_event)
-        
-        return events
-    
-    def get_rider_delivery_counts(self) -> Dict[str, int]:
-        """Return current delivery counts for all riders"""
-        return self.rider_delivery_counts.copy()
-
-
-class RiderEventGenerator:
-    """Generates rider lifecycle events (shift, location pings)"""
-    
-    def __init__(self, riders: List[Dict], zones: List[Dict]) -> None:
-        self.riders = riders
-        self.zones = zones
-        self.error_injector = ErrorInjector()
-        self.active_riders: Dict[str, Dict] = {}  # Track active rider state
-    
-    def generate_rider_event(
-        self, 
-        timestamp: datetime,
-        event_type: str,
-        rider: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Generate a single rider event"""
-        
-        # Get zone for GPS coordinates
-        zone = next((z for z in self.zones if z['zone_id'] == rider['zone_id']), None)
-        
-        # Generate GPS coordinates within zone
-        if zone:
-            boundary = json.loads(zone['boundary_polygon'])
-            lat = random.uniform(boundary[0][0], boundary[2][0])
-            lon = random.uniform(boundary[0][1], boundary[2][1])
-        else:
-            lat = random.uniform(GPS_BOUNDS['lat_min'], GPS_BOUNDS['lat_max'])
-            lon = random.uniform(GPS_BOUNDS['lon_min'], GPS_BOUNDS['lon_max'])
-        
-        # 50% busy, 40% idle, 10% offline (during shifts)
-        if event_type == 'shift_ended':
-            status = 'offline'
-        elif event_type == 'shift_started':
-            status = 'idle'
-        elif event_type == 'order_assigned':
-            status = 'busy'
-        else:
-            status = random.choices(
-                RIDER_STATUSES,
-                weights=[0.40, 0.50, 0.10]  # idle, busy, offline
-            )[0]
-        
-        event = {
-            'event_id': str(uuid.uuid4()),
-            'event_timestamp': timestamp.isoformat(),
-            'event_type': event_type,
-            'rider_id': rider['rider_id'],
-            'zone_id': rider['zone_id'],
-            'latitude': round(lat, 6),
-            'longitude': round(lon, 6),
-            'status': status
-        }
-        
-        return event
-    
-    def generate_events_for_minute(self, timestamp: datetime, active_rider_count: int = 200) -> List[Dict[str, Any]]:
-        """Generate rider events for a given minute"""
-        events = []
-        
-        # Ensure we have active riders
-        if not self.active_riders:
-            for rider in random.sample(self.riders, min(active_rider_count, len(self.riders))):
-                self.active_riders[rider['rider_id']] = rider
-                # Generate shift_started event
-                event = self.generate_rider_event(timestamp, 'shift_started', rider)
-                events.append(event)    
-        
-        # Generate location pings (every rider pings every 30 seconds = 2 per minute)
-        for rider_id, rider in self.active_riders.items():
-            for _ in range(2):  # 2 pings per minute
-                event = self.generate_rider_event(timestamp, 'location_ping', rider)
-                events.append(event)
-        
-        # Some riders end shifts (5% chance per minute)
-        riders_to_end = [rid for rid in self.active_riders if random.random() < PROBABILITIES['rider_shift_ended']]
-        for rider_id in riders_to_end[:5]:  # Max 5 per minute
-            rider = self.active_riders.pop(rider_id)
-            event = self.generate_rider_event(timestamp, 'shift_ended', rider)
-            events.append(event)
-        
-        # Some riders get assigned orders 
-        for rider_id in random.sample(list(self.active_riders.keys()), min(20, len(self.active_riders))):
-            if random.random() < PROBABILITIES['order_assigned']:
-                rider = self.active_riders[rider_id]
-                event = self.generate_rider_event(timestamp, 'order_assigned', rider)
-                events.append(event)
-        
-        return events
-
-
-# =============================================================================
-# Main Synthetic Data Generator
-# =============================================================================
 
 class SyntheticDataGenerator:
     """Main orchestrator for synthetic data generation"""
     
-    def __init__(self, output_dir: str = 'data') -> None:
+    def __init__(self, 
+                 output_dir: str = 'data', 
+                 csv_flush_interval: int = 60
+        ) -> None:
+        """
+        Args:
+            output_dir: Directory for output files
+            csv_flush_interval: Minutes between CSV flushes in streaming mode (0 to disable)
+        """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Initialize reference data
+        # Reference data
         self.ref_generator = ReferenceDataGenerator(str(self.output_dir / 'reference'))
         self.zones: List[Dict] = []
         self.restaurants: List[Dict] = []
         self.riders: List[Dict] = []
         
-        # Event generators (initialized after reference data)
+        # Event generators
         self.order_generator: Optional[OrderEventGenerator] = None
         self.rider_generator: Optional[RiderEventGenerator] = None
+        
+        # Streaming mode config
+        self.csv_flush_interval = csv_flush_interval
+        self._minutes_since_flush = 0
+        self._last_flush_time: Optional[datetime] = None
+        
+        # Incremental stats for streaming mode
+        self._stats = {
+            'total_order_events': 0,
+            'total_rider_events': 0,
+            'order_event_types': {},
+            'rider_event_types': {},
+            'regions': {},
+            'payment_methods': {},
+            'rider_statuses': {},
+            'errors': {'malformed_json': 0, 'null_values': 0}
+        }
     
     def initialize(self) -> Dict[str, str]:
         """Generate reference data and initialize event generators"""
@@ -540,21 +70,125 @@ class SyntheticDataGenerator:
         self.restaurants = self.ref_generator.generate_restaurants(self.zones)
         self.riders = self.ref_generator.generate_riders(self.zones)
         
-        # Initialize event generators
-        self.order_generator = OrderEventGenerator(self.restaurants, self.riders, self.zones)
-        self.rider_generator = RiderEventGenerator(self.riders, self.zones)
+        # Initialize event generators - they share the same riders list
+        # so changes in one are reflected in the other
+        self.order_generator = OrderEventGenerator(
+            self.restaurants, 
+            self.riders, 
+            self.zones)
+        
+        self.rider_generator = RiderEventGenerator(
+            self.riders, 
+            self.zones, 
+            ref_generator=self.ref_generator
+        )
         
         return ref_files
     
-    def generate_events_for_minute(self, timestamp: datetime) -> Tuple[List[Dict], List[Dict]]:
-        """Generate all events for a given minute"""
+    def generate_events_for_minute(self, 
+                                   timestamp: datetime, 
+                                   auto_flush: bool = True
+                                ) -> Tuple[List[Dict], List[Dict]]:
+        """Generate all events for a given minute
+        
+        Args:
+            timestamp: Current simulation time
+            auto_flush: If True, automatically flush CSV at configured interval
+            
+        Returns:
+            Tuple of (order_events, rider_events)
+        """
         if not self.order_generator or not self.rider_generator:
             raise RuntimeError("Call initialize() before generating events")
         
         order_events = self.order_generator.generate_events_for_minute(timestamp)
-        rider_events = self.rider_generator.generate_events_for_minute(timestamp)
+        rider_events, riders_left, new_riders = self.rider_generator.generate_events_for_minute(timestamp)
+        
+        # Sync rider state: notify order generator about riders leaving
+        for rider_id in riders_left:
+            self.order_generator.mark_rider_left(rider_id)
+        
+        # Sync rider state: notify order generator about new riders
+        for new_rider in new_riders:
+            self.order_generator.add_rider(new_rider)
+        
+        # Update incremental stats
+        self._update_incremental_stats(order_events, rider_events)
+        
+        # Periodic CSV flush for streaming mode
+        self._minutes_since_flush += 1
+        if auto_flush and self.csv_flush_interval > 0:
+            if self._minutes_since_flush >= self.csv_flush_interval:
+                self.flush_rider_csv(timestamp)
         
         return order_events, rider_events
+    
+    def _update_incremental_stats(self, 
+                                  order_events: List[Dict], 
+                                  rider_events: List[Dict]
+                                ) -> None:
+        """Update running stats incrementally (for streaming mode)"""
+        self._stats['total_order_events'] += len(order_events)
+        self._stats['total_rider_events'] += len(rider_events)
+        
+        for event in order_events:
+            if isinstance(event, str):
+                self._stats['errors']['malformed_json'] += 1
+                continue
+            
+            et = event.get('event_type', 'unknown')
+            self._stats['order_event_types'][et] = self._stats['order_event_types'].get(et, 0) + 1
+            
+            region = event.get('region', 'unknown')
+            self._stats['regions'][region] = self._stats['regions'].get(region, 0) + 1
+            
+            pm = event.get('payment_method', 'unknown')
+            self._stats['payment_methods'][pm] = self._stats['payment_methods'].get(pm, 0) + 1
+            
+            if any(v is None for k, v in event.items() if k != 'rider_id'):
+                self._stats['errors']['null_values'] += 1
+        
+        for event in rider_events:
+            if isinstance(event, str):
+                self._stats['errors']['malformed_json'] += 1
+                continue
+            
+            et = event.get('event_type', 'unknown')
+            self._stats['rider_event_types'][et] = self._stats['rider_event_types'].get(et, 0) + 1
+            
+            status = event.get('status', 'unknown')
+            self._stats['rider_statuses'][status] = self._stats['rider_statuses'].get(status, 0) + 1
+            
+            if any(v is None for v in event.values()):
+                self._stats['errors']['null_values'] += 1
+    
+    def flush_rider_csv(
+            self, 
+            timestamp: Optional[datetime] = None
+        ) -> str:
+        """Flush rider changes to CSV and clear pending tracking lists
+                
+        Returns:
+            Path to the written CSV file
+        """
+        if not self.rider_generator:
+            raise RuntimeError("Call initialize() before flushing")
+        
+        # Export current state
+        filepath = self.export_updated_riders()
+        
+        # Clear tracking lists to free memory
+        left_count, joined_count = self.rider_generator.clear_pending_changes()
+        
+        # Reset flush counter
+        self._minutes_since_flush = 0
+        self._last_flush_time = timestamp
+        
+        if left_count > 0 or joined_count > 0:
+            ts_str = timestamp.isoformat() if timestamp else 'now'
+            print(f"[{ts_str}] CSV flushed: {joined_count} new riders, {left_count} riders left")
+        
+        return filepath
     
     def generate_events(
         self, 
@@ -591,7 +225,9 @@ class SyntheticDataGenerator:
             all_rider_events.extend(rider_events)
             
             if minute % 10 == 0:
-                print(f"[{timestamp}] Generated {len(order_events)} order events, {len(rider_events)} rider events")
+                riders_left_count = len(self.rider_generator.riders_left) if self.rider_generator else 0
+                new_riders_count = len(self.rider_generator.new_riders_joined) if self.rider_generator else 0
+                print(f"[{timestamp}] Generated {len(order_events)} order events, {len(rider_events)} rider events | Riders left: {riders_left_count}, New riders: {new_riders_count}")
 
         # Process remaining active orders to completion
         extra_minutes = 0
@@ -618,22 +254,50 @@ class SyntheticDataGenerator:
         return all_order_events, all_rider_events
     
     def get_updated_riders(self) -> List[Dict[str, Any]]:
-        """Get riders with updated delivery counts"""
+        """Get riders with updated delivery counts and has_left status"""
         if not self.order_generator:
             return self.riders
         
         counts = self.order_generator.get_rider_delivery_counts()
         updated_riders = []
-        for rider in self.riders:
+        
+        # Shared riders list which includes new riders and has_left updates
+        all_riders = self.order_generator.all_riders
+        
+        for rider in all_riders:
             updated_rider = rider.copy()
-            updated_rider['total_deliveries'] = counts.get(rider['rider_id'], rider['total_deliveries'])
+            updated_rider['total_deliveries'] = counts.get(rider['rider_id'], rider.get('total_deliveries', 0))
             updated_riders.append(updated_rider)
+        
         return updated_riders
     
     def export_updated_riders(self, filename: str = 'riders.csv') -> str:
         """Export riders with updated delivery counts to CSV"""
         updated_riders = self.get_updated_riders()
-        return self.ref_generator.write_csv(updated_riders, filename)
+        return self.ref_generator.write_csv(updated_riders, filename, update_riders=True)
+    
+    def get_streaming_stats(self) -> Dict[str, Any]:
+        """Get current stats for streaming mode (incremental, no event lists needed)"""
+        stats = self._stats.copy()
+        
+        # Add rider churn from cumulative counters
+        if self.rider_generator:
+            stats['rider_churn'] = {
+                'riders_left': self.rider_generator.total_riders_left,
+                'new_riders_joined': self.rider_generator.total_new_riders,
+                'net_change': self.rider_generator.total_new_riders - self.rider_generator.total_riders_left,
+                'pending_flush': self.rider_generator.has_pending_changes()
+            }
+            stats['active_riders_count'] = len(self.rider_generator.active_riders)
+            stats['total_riders_in_system'] = len(self.rider_generator.all_riders)
+        
+        if self.order_generator:
+            stats['active_orders_count'] = len(self.order_generator.active_orders)
+        
+        stats['last_flush_time'] = self._last_flush_time.isoformat() if self._last_flush_time else None
+        stats['minutes_since_flush'] = self._minutes_since_flush
+        
+        return stats
     
     def get_stats(self, order_events: List[Dict], rider_events: List[Dict]) -> Dict[str, Any]:
         """Calculate statistics for generated events"""
@@ -678,6 +342,9 @@ class SyntheticDataGenerator:
             if any(v is None for v in event.values()):
                 null_orders += 1
         
+        # Rider churn stats
+        riders_left_count = len(self.rider_generator.riders_left) if self.rider_generator else 0
+        new_riders_count = len(self.rider_generator.new_riders_joined) if self.rider_generator else 0
         
         return {
             'total_order_events': len(order_events),
@@ -687,6 +354,11 @@ class SyntheticDataGenerator:
             'payment_methods': payment_methods,
             'rider_event_types': rider_types,
             'rider_statuses': rider_statuses,
+            'rider_churn': {
+                'riders_left': riders_left_count,
+                'new_riders_joined': new_riders_count,
+                'net_change': new_riders_count - riders_left_count
+            },
             'errors': {
                 'malformed_json': malformed_orders,
                 'null_values': null_orders
