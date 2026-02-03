@@ -34,7 +34,7 @@ conf: Dict[str, str] = get_config()
 producer = Producer(conf['kafka-conf']) #type: ignore
 
 print("Initializing synthetic data generator...")
-data_generator = SyntheticDataGenerator(output_dir=conf['base_dir'])
+data_generator = SyntheticDataGenerator(output_dir=conf['base_dir'], csv_flush_interval=60)
 data_generator.initialize()
 
 
@@ -50,10 +50,8 @@ print("Starting data production loop...")
 try:
     while True:
         print(f"Generating batch for {datetime.now()}...")
-        orders, riders = data_generator.generate_events(
-            datetime.now(),
-            duration_minutes=1,
-            output_file=None
+        orders, riders = data_generator.generate_events_for_minute(
+            datetime.now()
         )
 
         for order_item in orders:
