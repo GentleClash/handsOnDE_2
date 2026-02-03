@@ -72,7 +72,7 @@ class DataVisualizer:
         df = pd.DataFrame(valid_events)
         
         if 'event_timestamp' in df.columns:
-            df['event_timestamp'] = pd.to_datetime(df['event_timestamp'], errors='coerce')
+            df['event_timestamp'] = pd.to_datetime(df['event_timestamp'], errors='coerce', format='ISO8601')
             df['hour'] = df['event_timestamp'].dt.hour #type: ignore
             df['minute'] = df['event_timestamp'].dt.minute #type: ignore
         
@@ -84,7 +84,7 @@ class DataVisualizer:
         df = pd.DataFrame(valid_events)
         
         if 'event_timestamp' in df.columns:
-            df['event_timestamp'] = pd.to_datetime(df['event_timestamp'], errors='coerce')
+            df['event_timestamp'] = pd.to_datetime(df['event_timestamp'], errors='coerce', format='ISO8601')
             df['hour'] = df['event_timestamp'].dt.hour #type: ignore
             df['minute'] = df['event_timestamp'].dt.minute #type: ignore
         
@@ -102,7 +102,7 @@ class DataVisualizer:
             print("No order data available for plotting")
             return
         
-        fig, ax = plt.subplots(figsize=(14, 6))
+        _fig, ax = plt.subplots(figsize=(14, 6))
         
         # Group by minute
         df['time_bucket'] = df['event_timestamp'].dt.floor('1min') #type: ignore
@@ -339,8 +339,6 @@ class DataVisualizer:
             'Malformed JSON': sum(1 for e in self.order_events if isinstance(e, str)),
             'Null Values': sum(1 for e in self.order_events 
                               if isinstance(e, dict) and any(v is None for k, v in e.items() if k != 'rider_id')),
-            'Missing Fields': len(order_df) - order_df.dropna(subset=['order_id', 'event_timestamp'], 
-                                                               how='any').shape[0]
         }
         
         colors = ['#E74C3C', '#9B59B6', '#3498DB']
