@@ -1,4 +1,4 @@
-FROM apache/airflow:slim-3.1.7rc2-python3.13
+FROM apache/airflow:slim-3.1.7rc2-python3.12
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -12,7 +12,8 @@ USER airflow
 RUN pip install --no-cache-dir \
     confluent-kafka \
     apache-airflow-providers-docker \
-    apache-airflow-providers-apache-kafka
-RUN pip install --no-cache-dir 'apache-airflow[postgres]'
+    apache-airflow-providers-apache-kafka \
+    'apache-airflow[postgres,google]' \
+    apache-airflow-providers-fab 
 
 WORKDIR /opt/airflow

@@ -8,6 +8,7 @@ handsonde/
 data/
 data_lake/
 temp.md
+problem_statement.md
 
 # C extensions
 *.so

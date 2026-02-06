@@ -1,3 +1,14 @@
+x-airflow-common:
+  &airflow-common
+  environment:
+    &airflow-environment
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__CORE__SECRET_KEY: 97935b51f390ce53c05e19d8e725d1a7c6722af0a68a7599e1ae2dc4571cf7a821a417eaf2e5d2a62e4154764a18d9cbf3004d9fde61297b80b6936ed83edaa5
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+    AIRFLOW__LOAD_EXAMPLES: False
+
+
 services:
   broker_1:
     image: apache/kafka:latest
@@ -48,8 +59,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 10s
-
-
+  
   producer:
     build:
       context: .
@@ -132,19 +142,18 @@ services:
       airflow-db:
         condition: service_healthy
     environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
-      - _AIRFLOW_DB_MIGRATE=true
-      - _AIRFLOW_WWW_USER_CREATE=true
-      - _AIRFLOW_WWW_USER_USERNAME=admin
-      - _AIRFLOW_WWW_USER_PASSWORD=admin
+      <<: *airflow-environment
+      _AIRFLOW_DB_MIGRATE: true
+      _AIRFLOW_WWW_USER_CREATE: true
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+
     command: version
   
   airflow-webserver:
     build:
       context: .
       dockerfile: Dockerfile.airflow
-    #cgroups: host
     container_name: airflow_webserver
     restart: always
     depends_on:
@@ -155,41 +164,33 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
-      - AIRFLOW__LOAD_EXAMPLES=False
+      <<: *airflow-environment
     volumes:
       - ./logs:/opt/airflow/logs
       - ./dags:/opt/airflow/dags
-    #deploy:
-    #  resources:
-    #    limits:
-    #      memory: 2G
+      - ./data:/opt/airflow/data
+      - ./data_lake:/opt/airflow/data_lake
     command: api-server
   
   airflow-scheduler:
     build:
       context: .
       dockerfile: Dockerfile.airflow
-    #cgroups: host
     container_name: airflow_scheduler
     restart: always
     depends_on:
       airflow-init:
         condition: service_completed_successfully
     environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
-      - AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL=10
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - KAFKA_BOOTSTRAP_SERVERS=broker_1:29092,broker_2:29092
+      <<: *airflow-environment
+      AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: 10
+      KAFKA_BOOTSTRAP_SERVERS: broker_1:29092,broker_2:29092
     volumes:
       - ./logs:/opt/airflow/logs
       - ./dags:/opt/airflow/dags
-    #deploy:
-    #  resources:
-    #    limits:
-    #      memory: 2G
+      - ./data:/opt/airflow/data
+      - ./data_lake:/opt/airflow/data_lake
+
     command: scheduler
 
 volumes:
