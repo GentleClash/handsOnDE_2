@@ -1,4 +1,4 @@
-FROM apache/airflow:slim-3.1.7rc2-python3.12
+FROM apache/airflow:slim-3.1.7-python3.12
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -14,6 +14,6 @@ RUN pip install --no-cache-dir \
     apache-airflow-providers-docker \
     apache-airflow-providers-apache-kafka \
     'apache-airflow[postgres,google]' \
-    apache-airflow-providers-fab 
+    apache-airflow-providers-fab graphviz python-dotenv
 
 WORKDIR /opt/airflow

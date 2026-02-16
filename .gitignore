@@ -9,6 +9,8 @@ data/
 data_lake/
 temp.md
 problem_statement.md
+*.bak
+logs/
 
 # C extensions
 *.so
